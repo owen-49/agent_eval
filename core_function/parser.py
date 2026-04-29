@@ -1,0 +1,28 @@
+import re
+import json
+
+def parse_agent_response(text):
+    """
+    手写解析逻辑，提取 <thought> 和 <call> 标签内容
+    """
+    # 提取思维过程
+    thought_match = re.search(r'<thought>(.*?)</thought>', text, re.DOTALL)
+    thought = thought_match.group(1).strip() if thought_match else ""
+
+    # 提取工具调用
+    # 这里的正则需要足够鲁棒，以应对模型在标签内添加额外空格或换行的情况
+    call_match = re.search(r'<call name="(.*?)">(.*?)</call>', text, re.DOTALL)
+    
+    if call_match:
+        tool_name = call_match.group(1).strip()
+        tool_args_str = call_match.group(2).strip()
+        try:
+            # 尝试将参数解析为 JSON
+            tool_args = json.loads(tool_args_str)
+        except json.JSONDecodeError:
+            # 进阶任务：如果 JSON 格式崩坏，你需要在这里写修复逻辑
+            tool_args = tool_args_str 
+        
+        return thought, tool_name, tool_args
+    
+    return thought, None, None
