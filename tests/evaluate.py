@@ -3,6 +3,7 @@ import re
 import os
 import statistics
 from core_function.agent import ReActAgent
+from collections import Counter
 
 class Evaluator:
     def __init__(self, data_path, limit=20):
@@ -12,10 +13,6 @@ class Evaluator:
         self.results = []
 
     def clean_text(self, text: str) -> str:
-        """
-        手写预处理逻辑：去除干扰项。
-        这是科研评测中的标准步骤，用于对齐模型输出与标准答案。
-        """
         if not text: return ""
         # 1. 提取 Final Answer 之后的内容
         match = re.search(r"Final Answer:\s*(.*)", text, re.IGNORECASE | re.DOTALL)
@@ -30,10 +27,6 @@ class Evaluator:
         return content
 
     def calculate_metrics(self, prediction: str, ground_truth: str) -> bool:
-        """
-        核心指标计算：混合匹配策略。
-        在 PPT 中可以描述为“包含语义对齐的软匹配（Soft-matching with Semantic Alignment）”。
-        """
         pred_clean = self.clean_text(prediction)
         gt_clean = self.clean_text(ground_truth)
         
@@ -51,17 +44,38 @@ class Evaluator:
             return True
             
         return False
-
+    def calculate_f1(self, prediction: str, ground_truth: str) -> float:
+        pred_clean = self.clean_text(prediction)
+        gt_clean = self.clean_text(ground_truth)
+        
+        pred_tokens = pred_clean.split()
+        gt_tokens = gt_clean.split()
+        
+        if not pred_tokens or not gt_tokens:
+            return 1.0 if pred_tokens == gt_tokens else 0.0
+        
+        # 计算交集词频
+        common = Counter(pred_tokens) & Counter(gt_tokens)
+        num_same = sum(common.values())
+        
+        if num_same == 0:
+            return 0.0
+        
+        precision = 1.0 * num_same / len(pred_tokens)
+        recall = 1.0 * num_same / len(gt_tokens)
+        f1 = (2 * precision * recall) / (precision + recall)
+        return f1
+    
     def run_evaluation(self):
         print("="*50)
-        print(f"🚀 启动自动化评测流水线 | 样本上限: {self.limit}")
+        print(f"启动自动化评测流水线 | 样本上限: {self.limit}")
         print("="*50)
         
         correct_count = 0
         total_processed = 0
 
         if not os.path.exists(self.data_path):
-            print(f"❌ 错误: 找不到数据集 {self.data_path}")
+            print(f"错误: 找不到数据集 {self.data_path}")
             return
 
         with open(self.data_path, 'r', encoding='utf-8') as f:
@@ -93,11 +107,11 @@ class Evaluator:
                         "is_correct": is_correct
                     })
 
-                    status = "✅ PASS" if is_correct else "❌ FAIL"
+                    status = "PASS" if is_correct else "FAIL"
                     print(f"Result: {status} | Current Accuracy: {correct_count/total_processed:.2%}")
                 
                 except Exception as e:
-                    print(f"⚠️ 处理样本 {i} 时发生崩溃: {str(e)}")
+                    print(f"处理样本 {i} 时发生崩溃: {str(e)}")
                     continue
 
         self.generate_final_report(correct_count, total_processed)
@@ -109,7 +123,7 @@ class Evaluator:
                 "total_samples": total,
                 "correct_count": correct,
                 "accuracy": accuracy,
-                "model": "qwen2.5-7b-instruct (baseline)"
+                "model": "gpt-4.0"
             },
             "bad_cases": [r for r in self.results if not r['is_correct']]
         }
@@ -120,11 +134,10 @@ class Evaluator:
             json.dump(report, f, ensure_ascii=False, indent=2)
             
         print("\n" + "="*50)
-        print(f"📊 评测完成！最终准确率: {accuracy:.2%}")
+        print(f"评测完成！最终准确率: {accuracy:.2%}")
         print(f"详细报告及 Bad Cases 已保存至: {report_path}")
         print("="*50)
 
 if __name__ == "__main__":
-    # 建议先跑 10-20 个样本进行验证，确保 dispatch 的修复生效
     evaluator = Evaluator(data_path="data/hotpotqa200.jsonl", limit=10)
     evaluator.run_evaluation()

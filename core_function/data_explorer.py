@@ -16,13 +16,9 @@ def explore_hotpot_data(file_path):
         print(f"Error: 找不到文件 {file_path}，请检查路径。")
         return
 
-    # 1. 基础统计
+
     total_count = len(questions)
     q_lengths = [len(q) for q in questions]
-    
-    print("="*30)
-    print(f"项目B：HotpotQA 数据集初步分析报告")
-    print("="*30)
     print(f"总样本数: {total_count}")
     print(f"问题平均长度 (字符): {statistics.mean(q_lengths):.2f}")
     print(f"问题长度中位数: {statistics.median(q_lengths)}")
