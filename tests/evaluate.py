@@ -12,24 +12,26 @@ class Evaluator:
         self.results = []
 
     def clean_text(self, text: str) -> str:
-        """
-        学术级文本清洗：去标签、小写化、去冠词。
-        用于降低 Exact Match 的评测噪声。
-        """
+   
         if not text: return ""
-        # 仅提取 Final Answer 后的核心内容
+        # 1. 提取标签后的核心答案
         match = re.search(r"Final Answer:\s*(.*)", text, re.IGNORECASE | re.DOTALL)
         content = match.group(1) if match else text
+        
+        # 2. 基础标准化：小写化与去除冗余空格
         content = content.lower().strip()
-        # 去除标点与冠词
+        
+        # 3. 核心优化：去除标点符号
         content = re.sub(r'[^\w\s]', '', content)
-        content = re.sub(r'\b(the|a|an)\b', '', content).strip()
-        return content
+        
+        # 4. 关键改进：去除对语义贡献较小但会导致 EM 失败的停用词（如冠词）
+        # 例如将 "The Roman Catholic Church" 标准化为 "roman catholic church"
+        stop_words = {'the', 'a', 'an'}
+        tokens = [w for w in content.split() if w not in stop_words]
+        
+        return " ".join(tokens)
 
     def calculate_metrics(self, prediction: str, ground_truth: str):
-        """
-        计算多维指标：包含 EM 和 Token-level F1[cite: 2]。
-        """
         pred_clean = self.clean_text(prediction)
         gt_clean = self.clean_text(ground_truth)
         
@@ -56,7 +58,7 @@ class Evaluator:
 
     def run_evaluation(self):
         print("="*50)
-        print(f"🚀 启动硬约束评测流水线 | 样本上限: {self.limit}")
+        print(f"样本数量: {self.limit}")
         print("="*50)
         
         total_em = 0
@@ -97,7 +99,7 @@ class Evaluator:
         avg_em = em / total
         avg_f1 = f1 / total
         print("\n" + "="*50)
-        print(f"📊 最终统计 (n={total})")
+        print(f"最终统计 (n={total})")
         print(f"Average EM: {avg_em:.2%}")
         print(f"Average F1: {avg_f1:.2%}")
         print(f"Metrics Gap (F1-EM): {avg_f1 - avg_em:.2%}") # 指标间隙分析[cite: 2]
