@@ -9,7 +9,7 @@ class AgentClient:
     def __init__(self):
         self.api_key = os.getenv("API_KEY", "EMPTY")
         self.base_url = os.getenv("BASE_URL", "http://localhost:8000/v1")
-        self.model_name = os.getenv("MODEL_NAME", "gpt-4") 
+        self.model_name = os.getenv("MODEL_NAME", "gpt-4o") 
         
         self.client = OpenAI(
             api_key=self.api_key,

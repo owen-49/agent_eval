@@ -1,54 +1,80 @@
+import json
 import re
-from core_function.client import AgentClient
+import logging
+from typing import List, Dict, Any
 from core_function.tools import ToolManager
 from core_function.parser import parse_agent_response
 
 class ReActAgent:
-    def __init__(self, model_name="gpt-4"):
-        self.client = AgentClient()
+    def __init__(self, model_client: Any):
+        self.client = model_client
         self.tools = ToolManager()
-        self.max_steps = 8  
+        self.max_steps = 10 
+        self.turn_count = 0
 
-    def run(self, question: str):
-        system_prompt = """你是一个具备工具调用能力的智能体。请通过多步推理解决问题。
-每次回复必须包含 <thought> 标签进行思考。
-如果需要调用工具，请使用 <call name="工具名">{"参数": "值"}</call> 格式。
-可选工具：
-- wikipedia: 参数为 {"query": "搜索关键词"}
-- python: 参数为 {"code": "python代码"}
-当得到最终答案后，请输出：Final Answer: [你的答案]"""
+    def _extract_content(self, raw_response: Any) -> str:
+        """确保响应始终为字符串，防止正则崩溃"""
+        if isinstance(raw_response, str): return raw_response
+        if hasattr(raw_response, 'choices'): return raw_response.choices[0].message.content
+        if isinstance(raw_response, dict): return raw_response.get('content', str(raw_response))
+        return str(raw_response)
 
-        messages = [
-            {"role": "system", "content": system_prompt},
+    def run(self, question: str) -> str:
+        # 1. 强化版 System Prompt：增加 Few-shot 示例防止格式偏移
+        self.system_prompt = """你是一个具备自主自愈能力的科研智能体。
+[工具格式]
+必须严格使用：<call name="工具名">{"参数": "值"}</call>
+示例：<call name="wikipedia">{"query": "OpenAI"}</call>
+
+[行为准则]
+1. 遇到工具返回的 'Error' 或 '线索提示'，必须在 <thought> 中分析原因并调整搜索词。
+2. Final Answer 必须极其简洁，严禁任何解释。"""
+
+        self.history = [
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": question}
         ]
+        self.turn_count = 0
 
-        print(f"\n启动任务: {question}")
+        while self.turn_count < self.max_steps:
+            self.turn_count += 1
+            
+            # --- 认知刷新逻辑 ---
+            if self.turn_count % 3 == 0:
+                self.history.append({"role": "system", "content": f"[指令刷新]\n{self.system_prompt}"})
 
-        for step in range(self.max_steps):
-         
-            response = self.client.request_llm(messages)
-            if not response:
-                return "Error: 模型响应中断"
+            # 核心修复：根据 AgentClient 的实际方法名进行调用
+            # 如果你的 Client 方法是 request_llm，请确保此处一致
+            try:
+                raw_res = self.client.request_llm(self.history) 
+                response = self._extract_content(raw_res)
+            except AttributeError:
+                # 容错处理：尝试通用的 generate 方法
+                raw_res = self.client.generate(self.history)
+                response = self._extract_content(raw_res)
+            
+            self.history.append({"role": "assistant", "content": response})
 
-            print(f"\n[Step {step+1}] Thought: \n{response}")
+            # 4. 格式自愈检查：拦截 Progress 3/9 中的非标调用
+            if "<call" in response and not re.search(r'<call name="(.*?)">(.*?)</call>', response):
+                feedback = "Error: 检测到无效的工具格式。请严格使用 <call name=\"...\">{\"...\": \"...\"}</call> 且确保 JSON 双引号闭合。"
+                self.history.append({"role": "user", "content": feedback})
+                continue
 
-           
+            # 5. 解析并执行
             thought, tool_name, tool_args = parse_agent_response(response)
 
             if "Final Answer:" in response:
                 return response
 
-
             if tool_name:
-                print(f"正在调用工具: {tool_name} | 参数: {tool_args}")
+                # 执行具备“线索推送”功能的新版工具
                 observation = self.tools.dispatch(tool_name, tool_args)
-                print(f"👁️  Observation: {observation}")
-
-               
-                messages.append({"role": "assistant", "content": response})
-                messages.append({"role": "user", "content": f"Observation: {observation}"})
+                
+                # 6. 动态处理启发式线索
+                self.history.append({"role": "user", "content": f"Observation: {observation}"})
             else:
-                messages.append({"role": "user", "content": "请继续推理并使用 <call> 调用工具，或给出 Final Answer。"})
+                # 强制推进推理，防止 Agent 陷入 Thought 复读
+                self.history.append({"role": "user", "content": "请根据 Observation 继续推理，或给出 Final Answer。"})
 
         return "Reached max steps without final answer."
