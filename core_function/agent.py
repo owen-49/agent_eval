@@ -13,7 +13,6 @@ class ReActAgent:
         self.turn_count = 0
 
     def _extract_content(self, raw_response: Any) -> str:
-        """确保响应始终为字符串，防止正则崩溃"""
         if isinstance(raw_response, str): return raw_response
         if hasattr(raw_response, 'choices'): return raw_response.choices[0].message.content
         if isinstance(raw_response, dict): return raw_response.get('content', str(raw_response))
@@ -39,42 +38,41 @@ class ReActAgent:
         while self.turn_count < self.max_steps:
             self.turn_count += 1
             
-            # --- 认知刷新逻辑 ---
+            
             if self.turn_count % 3 == 0:
                 self.history.append({"role": "system", "content": f"[指令刷新]\n{self.system_prompt}"})
 
-            # 核心修复：根据 AgentClient 的实际方法名进行调用
-            # 如果你的 Client 方法是 request_llm，请确保此处一致
+            
             try:
                 raw_res = self.client.request_llm(self.history) 
                 response = self._extract_content(raw_res)
             except AttributeError:
-                # 容错处理：尝试通用的 generate 方法
+                
                 raw_res = self.client.generate(self.history)
                 response = self._extract_content(raw_res)
             
             self.history.append({"role": "assistant", "content": response})
 
-            # 4. 格式自愈检查：拦截 Progress 3/9 中的非标调用
+            
             if "<call" in response and not re.search(r'<call name="(.*?)">(.*?)</call>', response):
                 feedback = "Error: 检测到无效的工具格式。请严格使用 <call name=\"...\">{\"...\": \"...\"}</call> 且确保 JSON 双引号闭合。"
                 self.history.append({"role": "user", "content": feedback})
                 continue
 
-            # 5. 解析并执行
+            
             thought, tool_name, tool_args = parse_agent_response(response)
 
             if "Final Answer:" in response:
                 return response
 
             if tool_name:
-                # 执行具备“线索推送”功能的新版工具
+               
                 observation = self.tools.dispatch(tool_name, tool_args)
                 
-                # 6. 动态处理启发式线索
+                
                 self.history.append({"role": "user", "content": f"Observation: {observation}"})
             else:
-                # 强制推进推理，防止 Agent 陷入 Thought 复读
+                
                 self.history.append({"role": "user", "content": "请根据 Observation 继续推理，或给出 Final Answer。"})
 
         return "Reached max steps without final answer."
