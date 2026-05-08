@@ -140,7 +140,7 @@ if __name__ == "__main__":
     
     evaluator = Evaluator(
         data_path="data/hotpotqa200.jsonl", 
-        limit=20, 
+        limit=200, 
         model_client=my_client
     )
     evaluator.run_evaluation()

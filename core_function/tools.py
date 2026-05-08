@@ -1,5 +1,6 @@
 import subprocess
 import os
+import wikipedia
 import json
 import re
 from typing import Dict, Any, List, Tuple, Set
@@ -84,15 +85,35 @@ class ToolManager:
         except Exception as e:
             return f"Unexpected System Error: {str(e)}"
 
-    def wikipedia_search(self, query: str) -> str:
-        if "fail" in self._session_token.lower():
-            return "Error: Unauthorized. Please refresh token."
-        
-        raw_output = f"Search Result for '{query}': [Summary data...]" 
-        refined_output = self._refine_search_results(query, raw_output)
-        
-        self._update_memory(refined_output)
-        return refined_output
+    def wikipedia_search(self, query):
+        try:
+            self.verified_entities.add(query.lower())
+            
+            # 1. 尝试精准获取页面
+            try:
+                page = wikipedia.page(query, auto_suggest=False)
+                return {"content": page.summary[:1200], "status": "precise"}
+            except (wikipedia.exceptions.PageError, wikipedia.exceptions.DisambiguationError):
+                # 2. 【核心改进】暴力回退：获取搜索结果前 3 名的 Snippets
+                search_results = wikipedia.search(query)
+                if not search_results:
+                    return f"Error: 搜索 '{query}' 无任何结果。"
+                
+                fallback_content = []
+                for title in search_results[:3]:
+                    try:
+                        sum_text = wikipedia.summary(title, sentences=2, auto_suggest=False)
+                        fallback_content.append(f"[{title}]: {sum_text}")
+                    except:
+                        continue
+                
+                combined_info = "\n".join(fallback_content)
+                return {
+                    "content": f"精准页面未找到。从相关搜索中提取到碎片信息：\n{combined_info}",
+                    "status": "fuzzy"
+                }
+        except Exception as e:
+            return f"Error: 搜索异常 - {str(e)}"
 
     def dispatch(self, tool_name: str, args: Any) -> str:
         if isinstance(args, str):
